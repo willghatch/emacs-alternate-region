@@ -49,127 +49,259 @@
 ;; TODO - I have no idea what the minimum emacs version required here is.  It can probably work with much earlier versions.
 ;; TODO - I would like to have multiple alternate regions in theory, but my main use case is just highlighting and swapping things.
 
-(defvar alternate-region--current nil
-  "Nil when there is no alternate region.
-When there is an alternate region, it is a list (BUFFER BEGIN END).")
+(defvar alternate-region--current-list nil
+  "List of alternate regions.
+Each element is a list (BUFFER BEGIN END).")
 
-(defface alternate-region-face
+(defface alternate-region-face-0
   '((default (:inherit region))
     (((background dark)) (:background "#105010"))
     (((background light)) (:background "#a0cfaf")))
-  "Face for alternate-region.")
+  "Face for alternate-region index 0.")
 
-(defvar alternate-region--overlay nil
-  "Overlay for the alternate region.")
+(defface alternate-region-face-1
+  '((default (:inherit region))
+    (((background dark)) (:background "#501050"))
+    (((background light)) (:background "#cfa0cf")))
+  "Face for alternate-region index 1.")
 
+(defface alternate-region-face-2
+  '((default (:inherit region))
+    (((background dark)) (:background "#501010"))
+    (((background light)) (:background "#cfa0a0")))
+  "Face for alternate-region index 2.")
 
+(defface alternate-region-face-3
+  '((default (:inherit region))
+    (((background dark)) (:background "#505010"))
+    (((background light)) (:background "#cfcfa0")))
+  "Face for alternate-region index 3.")
+
+(defface alternate-region-face-4
+  '((default (:inherit region))
+    (((background dark)) (:background "#105050"))
+    (((background light)) (:background "#a0cfcf")))
+  "Face for alternate-region index 4.")
+
+(defface alternate-region-face-5
+  '((default (:inherit region))
+    (((background dark)) (:background "#301050"))
+    (((background light)) (:background "#dfa0cf")))
+  "Face for alternate-region index 5.")
+
+(defface alternate-region-face-6
+  '((default (:inherit region))
+    (((background dark)) (:background "#503010"))
+    (((background light)) (:background "#cfdfa0")))
+  "Face for alternate-region index 6.")
+
+(defface alternate-region-face-7
+  '((default (:inherit region))
+    (((background dark)) (:background "#103050"))
+    (((background light)) (:background "#a0dfcf")))
+  "Face for alternate-region index 7.")
+
+(defface alternate-region-face-8
+  '((default (:inherit region))
+    (((background dark)) (:background "#301030"))
+    (((background light)) (:background "#dfa0df")))
+  "Face for alternate-region index 8.")
+
+(defface alternate-region-face-9
+  '((default (:inherit region))
+    (((background dark)) (:background "#303010"))
+    (((background light)) (:background "#dfdfa0")))
+  "Face for alternate-region index 9.")
+
+(defvar alternate-region--overlays nil
+  "List of overlays for alternate regions.")
+
+(defun alternate-region--get-face (index)
+  "Get the face for alternate region at INDEX."
+  (intern (format "alternate-region-face-%d" (mod index 10))))
+
+(defun alternate-region--clear-all-overlays ()
+  "Clear all alternate region overlays."
+  (dolist (overlay alternate-region--overlays)
+    (when overlay (delete-overlay overlay)))
+  (setq alternate-region--overlays nil))
+
+(defun alternate-region--update-overlays ()
+  "Update overlays for all alternate regions."
+  (alternate-region--clear-all-overlays)
+  (let ((index 0))
+    (dolist (region alternate-region--current-list)
+      (let ((buffer (car region))
+            (begin (cadr region))
+            (end (caddr region)))
+        (with-current-buffer buffer
+          (let ((overlay (make-overlay begin end)))
+            (overlay-put overlay 'face (alternate-region--get-face index))
+            (setq alternate-region--overlays (cons overlay alternate-region--overlays))))
+        (setq index (1+ index))))
+    (setq alternate-region--overlays (nreverse alternate-region--overlays))))
 
 (defun alternate-region-set (region &optional buffer)
-  "Set the alternate region to REGION (a cons of BEGIN and END) in BUFFER."
+  "Set the head of the alternate region list to REGION (a cons of BEGIN and END) in BUFFER.
+If the list is empty, this pushes a new region."
   (with-current-buffer (or buffer (current-buffer))
     (if region
-        (let ((begin (car region))
-              (end (cdr region))
-              (prev-buffer (and alternate-region--current
-                                (car alternate-region--current))))
-          (setq alternate-region--current (list (current-buffer) begin end))
-          (when (and prev-buffer (not (eq prev-buffer (current-buffer))))
-            (with-current-buffer prev-buffer
-              (remove-hook 'after-change-functions 'alternate-region--update t)))
-          (when alternate-region--overlay
-            (delete-overlay alternate-region--overlay)
-            (setq alternate-region--overlay nil))
-          (setq alternate-region--overlay (make-overlay begin end))
-          (overlay-put alternate-region--overlay 'face 'alternate-region-face)
+        (let* ((begin (car region))
+               (end (cdr region))
+               (new-region (list (current-buffer) begin end)))
+          (if alternate-region--current-list
+              (setcar alternate-region--current-list new-region)
+            (setq alternate-region--current-list (list new-region)))
+          (alternate-region--update-overlays)
           (add-hook 'after-change-functions 'alternate-region--update 10 t))
-      (setq alternate-region--current nil)
-      (remove-hook 'after-change-functions 'alternate-region--update t)
-      (when alternate-region--overlay
-        (delete-overlay alternate-region--overlay)
-        (setq alternate-region--overlay nil)))))
+      (alternate-region-clear))))
+
+(defun alternate-region-push (region &optional buffer)
+  "Push REGION (a cons of BEGIN and END) to the front of the alternate region list in BUFFER."
+  (with-current-buffer (or buffer (current-buffer))
+    (when region
+      (let* ((begin (car region))
+             (end (cdr region))
+             (new-region (list (current-buffer) begin end)))
+        (setq alternate-region--current-list (cons new-region alternate-region--current-list))
+        (alternate-region--update-overlays)
+        (add-hook 'after-change-functions 'alternate-region--update 10 t)))))
+
+(defun alternate-region-clear ()
+  "Clear all alternate regions."
+  (interactive)
+  (alternate-region--clear-all-overlays)
+  (setq alternate-region--current-list nil)
+  (remove-hook 'after-change-functions 'alternate-region--update t))
+
+(defun alternate-region-list (&optional include-region)
+  "Return the current list of alternate regions.
+If INCLUDE-REGION is non-nil, include the current active region at the front."
+  (if (and include-region (region-active-p))
+      (cons (list (current-buffer) (region-beginning) (region-end))
+            alternate-region--current-list)
+    alternate-region--current-list))
 
 (defun alternate-region--update (beg end prev-length)
-  "Update the alternate region when a change is made in its buffer.
+  "Update alternate regions when a change is made in their buffer.
 BEG and END indicate the boundaries of the changed region.
 PREV-LENGTH is the length of the text that was in the modified region."
-  (when alternate-region--current
-    (let* ((alt-buffer (car alternate-region--current))
-           (alt-start (cadr alternate-region--current))
-           (alt-end (caddr alternate-region--current))
-           (change-length (- (- end beg) prev-length)))
-
-      (when (eq (current-buffer) alt-buffer)
-        (cond
-         ((<= alt-end beg)
-          ;; Do nothing
-          )
-         ((<= end alt-start)
-          (let ((new-alt-start (+ alt-start change-length))
-                (new-alt-end (+ alt-end change-length)))
-            (alternate-region-set (cons new-alt-start new-alt-end) alt-buffer)))
-         (t
-          ;; Change overlaps with the alternate region, so just clear the alternate-region.
-          (alternate-region-set nil)))))))
+  (when alternate-region--current-list
+    (let ((change-length (- (- end beg) prev-length))
+          (updated-list nil)
+          (needs-update nil))
+      (dolist (region alternate-region--current-list)
+        (let* ((alt-buffer (car region))
+               (alt-start (cadr region))
+               (alt-end (caddr region)))
+          (if (eq (current-buffer) alt-buffer)
+              (cond
+               ((<= alt-end beg)
+                (push region updated-list))
+               ((<= end alt-start)
+                (let ((new-alt-start (+ alt-start change-length))
+                      (new-alt-end (+ alt-end change-length)))
+                  (push (list alt-buffer new-alt-start new-alt-end) updated-list)
+                  (setq needs-update t)))
+               (t
+                (setq needs-update t)))
+            (push region updated-list))))
+      (setq alternate-region--current-list (nreverse updated-list))
+      (when needs-update
+        (alternate-region--update-overlays)))))
 
 (defun alternate-region-activate ()
-  "Activate the alternate region by setting it to the current active region.  If not `region-active-p', deactivate the alternate region."
+  "Activate the alternate region by pushing the current active region to the list.  If not `region-active-p', clear all alternate regions."
   (interactive)
   (if (region-active-p)
       (let ((current-region (cons (region-beginning) (region-end))))
-        (alternate-region-set current-region)
+        (alternate-region-push current-region)
         (deactivate-mark))
-    (alternate-region-set nil)))
+    (alternate-region-clear)))
 
-(defun alternate-region-cycle ()
-  "Don't move the text between the regions, but changen which region is the current region and the alternate region."
-  (interactive)
-  (if (and (region-active-p) alternate-region--current)
-      (let ((current-region (cons (region-beginning) (region-end)))
-            (alt-region (cons (cadr alternate-region--current)
-                              (caddr alternate-region--current)))
-            (alt-buffer (car alternate-region--current)))
-        (alternate-region-set current-region)
-        (when (not (eq (current-buffer) alt-buffer))
-          (switch-to-buffer alt-buffer))
-        (goto-char (car alt-region))
-        (set-mark (cdr alt-region)))
-    (error "Both current and alternate regions must be active.")))
+(defun alternate-region-cycle (&optional index)
+  "Cycle between the current region and alternate regions.
+INDEX can be:
+- nil or 0: swap with head of alternate list (default behavior)
+- number: swap with the alternate region at that index
+- 'cycle: push current region to head, pop tail and activate it"
+  (interactive "P")
+  (cond
+   ((eq index 'cycle)
+    (if (and (region-active-p) alternate-region--current-list)
+        (let ((current-region (cons (region-beginning) (region-end)))
+              (tail-region (car (last alternate-region--current-list))))
+          (alternate-region-push current-region)
+          (setq alternate-region--current-list (butlast alternate-region--current-list))
+          (let ((tail-buffer (car tail-region))
+                (tail-start (cadr tail-region))
+                (tail-end (caddr tail-region)))
+            (when (not (eq (current-buffer) tail-buffer))
+              (switch-to-buffer tail-buffer))
+            (goto-char tail-start)
+            (set-mark tail-end))
+          (alternate-region--update-overlays))
+      (error "Both current region and alternate regions must be active.")))
+   (t
+    (let ((target-index (or index 0)))
+      (if (and (region-active-p)
+               alternate-region--current-list
+               (< target-index (length alternate-region--current-list)))
+          (let* ((current-region (cons (region-beginning) (region-end)))
+                 (target-region (nth target-index alternate-region--current-list))
+                 (target-buffer (car target-region))
+                 (target-start (cadr target-region))
+                 (target-end (caddr target-region)))
+            (setcar (nthcdr target-index alternate-region--current-list)
+                    (list (current-buffer) (car current-region) (cdr current-region)))
+            (when (not (eq (current-buffer) target-buffer))
+              (switch-to-buffer target-buffer))
+            (goto-char target-start)
+            (set-mark target-end)
+            (alternate-region--update-overlays))
+        (error "Both current and alternate regions must be active, and index must be valid."))))))
 
 
 
 (defun alternate-region-swap ()
-  "Swap the contents of the current region and the alternate region.  IE move the text between the two regions."
+  "Swap the contents of the current region and the head alternate region.  IE move the text between the two regions."
   (interactive)
-  (if (and (region-active-p) alternate-region--current)
+  (if (and (region-active-p) alternate-region--current-list)
       (let* ((current-region (cons (region-beginning) (region-end)))
-             (alt-buffer (car alternate-region--current))
-             (alt-region (cons (cadr alternate-region--current) (caddr alternate-region--current)))
+             (alt-region-data (car alternate-region--current-list))
+             (alt-buffer (car alt-region-data))
+             (alt-region (cons (cadr alt-region-data) (caddr alt-region-data)))
              (current-start (car current-region))
              (current-end (cdr current-region))
              (alt-start (car alt-region))
              (alt-end (cdr alt-region)))
         (if (equal (current-buffer) alt-buffer)
             ;; If both regions are in the same buffer
-            (let ((current-text (buffer-substring-no-properties current-start current-end))
+            (let ((current-text
+                   (buffer-substring-no-properties current-start current-end))
                   (alt-text (buffer-substring-no-properties alt-start alt-end)))
               (delete-region current-start current-end)
               (goto-char current-start)
               (insert alt-text)
               ;; Update positions based on the current length
               (let* ((length-difference (- (length alt-text) (length current-text)))
-                     (new-alt-start (+ (if (< current-start alt-start) length-difference 0) alt-start))
+                     (new-alt-start (+ (if (< current-start alt-start)
+                                           length-difference 0)
+                                       alt-start))
                      (new-alt-end (+ new-alt-start (length alt-text)))
-                     (final-alt-end (+ new-alt-start (length current-text)))
-                     (current-alt-length (length current-text)))
+                     (final-alt-end (+ new-alt-start (length current-text))))
                 (delete-region new-alt-start new-alt-end)
                 (goto-char new-alt-start)
                 (insert current-text)
-                ;; Adjust alternate buffer region positions
-                (alternate-region-set (cons new-alt-start final-alt-end) alt-buffer)
+                ;; Update the head of the alternate region list
+                (setcar alternate-region--current-list
+                        (list alt-buffer new-alt-start final-alt-end))
+                (alternate-region--update-overlays)
                 (goto-char (+ current-start (length alt-text)))
                 (set-mark current-start)))
           ;; If regions are in different buffers
-          (let ((current-text (buffer-substring-no-properties current-start current-end))
+          (let ((current-text
+                 (buffer-substring-no-properties current-start current-end))
                 (alt-text (with-current-buffer alt-buffer
                             (buffer-substring-no-properties alt-start alt-end))))
             ;; Swap text in the current buffer
@@ -183,8 +315,10 @@ PREV-LENGTH is the length of the text that was in the modified region."
               (delete-region alt-start alt-end)
               (goto-char alt-start)
               (insert current-text))
-            ;; Update the alternate region
-            (alternate-region-set (cons alt-start (+ alt-start (length current-text))) alt-buffer))))
+            ;; Update the head of the alternate region list
+            (setcar alternate-region--current-list
+                    (list alt-buffer alt-start (+ alt-start (length current-text))))
+            (alternate-region--update-overlays))))
     (error "Both current and alternate regions must be active.")))
 
 (provide 'alternate-region)
