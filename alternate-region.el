@@ -261,78 +261,162 @@ INDEX can be:
             (alternate-region--update-overlays))
         (error "Both current and alternate regions must be active, and index must be valid."))))))
 
-
+(defun alternate-region--exchange (region1 region2)
+  "Exchange the contents of REGION1 and REGION2.
+Both regions should be in the format (BUFFER BEGIN END).
+Returns a list (NEW-REGION1 NEW-REGION2) with updated positions."
+  (let* ((buffer1 (car region1))
+         (start1 (cadr region1))
+         (end1 (caddr region1))
+         (buffer2 (car region2))
+         (start2 (cadr region2))
+         (end2 (caddr region2)))
+    (with-undo-amalgamate
+      (if (equal buffer1 buffer2)
+          ;; If both regions are in the same buffer
+          (with-current-buffer buffer1
+            (let ((text1 (buffer-substring-no-properties start1 end1))
+                  (text2 (buffer-substring-no-properties start2 end2)))
+              (delete-region start1 end1)
+              (goto-char start1)
+              (insert text2)
+              ;; Update positions based on the current length
+              (let* ((length-difference (- (length text2) (length text1)))
+                     (new-start2 (+ (if (< start1 start2) length-difference 0)
+                                    start2))
+                     (new-end2 (+ new-start2 (length text2)))
+                     (final-end2 (+ new-start2 (length text1))))
+                (delete-region new-start2 new-end2)
+                (goto-char new-start2)
+                (insert text1)
+                ;; Calculate final positions
+                (let ((final-start1 (if (< start1 start2)
+                                        start1
+                                      (+ start1 (- length-difference))))
+                      (final-end1 (if (< start1 start2)
+                                      (+ start1 (length text2))
+                                    (+ start1
+                                       (- length-difference)
+                                       (length text2)))))
+                  (list (list buffer1 final-start1 final-end1)
+                        (list buffer2 new-start2 final-end2))))))
+        ;; If regions are in different buffers
+        (let ((text1 (with-current-buffer buffer1
+                       (buffer-substring-no-properties start1 end1)))
+              (text2 (with-current-buffer buffer2
+                       (buffer-substring-no-properties start2 end2))))
+          ;; Swap text in buffer1
+          (with-current-buffer buffer1
+            (delete-region start1 end1)
+            (goto-char start1)
+            (insert text2))
+          ;; Swap text in buffer2
+          (with-current-buffer buffer2
+            (delete-region start2 end2)
+            (goto-char start2)
+            (insert text1))
+          ;; Return new regions
+          (list (list buffer1 start1 (+ start1 (length text2)))
+                (list buffer2 start2 (+ start2 (length text1)))))))))
 
 (defun alternate-region-swap ()
-  "Swap the contents of the current region and the head alternate region.  IE move the text between the two regions."
+  "Swap the contents of regions.
+If current region is active, swap it with the head alternate region.
+If current region is inactive, swap the first two alternate regions."
   (interactive)
-  (if (and (region-active-p) alternate-region--current-list)
-      (let* ((current-region (cons (region-beginning) (region-end)))
-             (alt-region-data (car alternate-region--current-list))
-             (alt-buffer (car alt-region-data))
-             (alt-region (cons (cadr alt-region-data) (caddr alt-region-data)))
-             (current-start (car current-region))
-             (current-end (cdr current-region))
-             (alt-start (car alt-region))
-             (alt-end (cdr alt-region)))
-        (with-undo-amalgamate
-          (if (equal (current-buffer) alt-buffer)
-              ;; If both regions are in the same buffer
-              (let ((current-text
-                     (buffer-substring-no-properties current-start current-end))
-                    (alt-text (buffer-substring-no-properties alt-start alt-end)))
-                (delete-region current-start current-end)
-                (goto-char current-start)
-                (insert alt-text)
-                ;; Update positions based on the current length
-                (let* ((length-difference (- (length alt-text) (length current-text)))
-                       (new-alt-start (+ (if (< current-start alt-start)
-                                             length-difference 0)
-                                         alt-start))
-                       (new-alt-end (+ new-alt-start (length alt-text)))
-                       (final-alt-end (+ new-alt-start (length current-text))))
-                  (delete-region new-alt-start new-alt-end)
-                  (goto-char new-alt-start)
-                  (insert current-text)
-                  ;; Update the head of the alternate region list
-                  (setcar alternate-region--current-list
-                          (list alt-buffer new-alt-start final-alt-end))
-                  (alternate-region--update-overlays)
-                  ;; Calculate the final position of the current region after both swaps
-                  (let ((final-current-start
-                         (if (< current-start alt-start)
-                             current-start
-                           (+ current-start (- length-difference))))
-                        (final-current-end
-                         (if (< current-start alt-start)
-                             (+ current-start (length alt-text))
-                           (+ current-start
-                              (- length-difference)
-                              (length alt-text)))))
-                    ;; Set the region to the newly inserted text
-                    (goto-char final-current-end)
-                    (set-mark final-current-start)
-                    (activate-mark))))
-            ;; If regions are in different buffers
-            (let ((current-text
-                   (buffer-substring-no-properties current-start current-end))
-                  (alt-text (with-current-buffer alt-buffer
-                              (buffer-substring-no-properties alt-start alt-end))))
-              ;; Swap text in the current buffer
-              (delete-region current-start current-end)
-              (goto-char current-start)
-              (insert alt-text)
-              (goto-char (+ current-start (length alt-text)))
-              (set-mark current-start)
-              ;; Swap text in the alternate buffer
-              (with-current-buffer alt-buffer
-                (delete-region alt-start alt-end)
-                (goto-char alt-start)
-                (insert current-text))
-              ;; Update the head of the alternate region list
-              (setcar alternate-region--current-list
-                      (list alt-buffer alt-start (+ alt-start (length current-text))))
-              (alternate-region--update-overlays)))))
-    (error "Both current and alternate regions must be active.")))
+  (cond
+   ((and (region-active-p) alternate-region--current-list)
+    ;; Swap current region with head alternate region
+    (let* ((current-region-data (list (current-buffer) (region-beginning)
+                                      (region-end)))
+           (alt-region-data (car alternate-region--current-list))
+           (exchanged-regions
+            (alternate-region--exchange current-region-data alt-region-data))
+           (new-current-region (car exchanged-regions))
+           (new-alt-region (cadr exchanged-regions)))
+      ;; Update the head of the alternate region list
+      (setcar alternate-region--current-list new-alt-region)
+      (alternate-region--update-overlays)
+      ;; Set the region to the newly swapped text
+      (let ((new-current-buffer (car new-current-region))
+            (new-current-start (cadr new-current-region))
+            (new-current-end (caddr new-current-region)))
+        (goto-char new-current-end)
+        (set-mark new-current-start)
+        (activate-mark))))
+   ((and (not (region-active-p))
+         alternate-region--current-list
+         (>= (length alternate-region--current-list) 2))
+    ;; Swap the first two alternate regions
+    (let* ((first-alt (car alternate-region--current-list))
+           (second-alt (cadr alternate-region--current-list))
+           (current-point (point))
+           (current-buffer (current-buffer))
+           (first-buffer (car first-alt))
+           (first-start (cadr first-alt))
+           (first-end (caddr first-alt))
+           (second-buffer (car second-alt))
+           (second-start (cadr second-alt))
+           (second-end (caddr second-alt))
+           (exchanged-regions
+            (alternate-region--exchange first-alt second-alt))
+           (new-first-alt (car exchanged-regions))
+           (new-second-alt (cadr exchanged-regions)))
+      ;; Update the first two elements of the alternate region list
+      (setcar alternate-region--current-list new-first-alt)
+      (setcar (cdr alternate-region--current-list) new-second-alt)
+      (alternate-region--update-overlays)
+      ;; Calculate and set the new cursor position
+      (cond
+       ((eq current-buffer first-buffer)
+        (let ((new-point
+               (cond
+                ;; Point is before both regions (if second is in same buffer)
+                ((and (eq first-buffer second-buffer)
+                      (<= current-point (min first-start second-start)))
+                 current-point)
+                ;; Point is after both regions (if second is in same buffer)
+                ((and (eq first-buffer second-buffer)
+                      (>= current-point (max first-end second-end)))
+                 current-point)
+                ;; Point is between the regions (if second is in same buffer)
+                ((and (eq first-buffer second-buffer)
+                      (>= current-point (min first-end second-end))
+                      (<= current-point (max first-start second-start)))
+                 (+ current-point
+                    (if (< first-start second-start)
+                        (- (cadr new-second-alt) second-start)
+                      (- (cadr new-first-alt) first-start))))
+                ;; Point is within the first region
+                ((and (>= current-point first-start) (<= current-point first-end))
+                 (+ (cadr new-first-alt) (- current-point first-start)))
+                ;; Point is within the second region (if in same buffer)
+                ((and (eq first-buffer second-buffer)
+                      (>= current-point second-start) (<= current-point second-end))
+                 (+ (cadr new-second-alt) (- current-point second-start)))
+                ;; Point is before/after first region only (second region in different buffer)
+                ((<= current-point first-start)
+                 current-point)
+                ((>= current-point first-end)
+                 (+ current-point (- (caddr new-first-alt) first-end)))
+                ;; Default case
+                (t current-point))))
+          (goto-char new-point)))
+       ((eq current-buffer second-buffer)
+        (let ((new-point
+               (cond
+                ;; Point is within the second region
+                ((and (>= current-point second-start) (<= current-point second-end))
+                 (+ (cadr new-second-alt) (- current-point second-start)))
+                ;; Point is before/after second region
+                ((<= current-point second-start)
+                 current-point)
+                ((>= current-point second-end)
+                 (+ current-point (- (caddr new-second-alt) second-end)))
+                ;; Default case
+                (t current-point))))
+          (goto-char new-point))))))
+   (t
+    (error "Either current region must be active with at least one alternate region, or at least two alternate regions must exist."))))
 
 (provide 'alternate-region)
