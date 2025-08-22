@@ -275,50 +275,64 @@ INDEX can be:
              (current-end (cdr current-region))
              (alt-start (car alt-region))
              (alt-end (cdr alt-region)))
-        (if (equal (current-buffer) alt-buffer)
-            ;; If both regions are in the same buffer
+        (with-undo-amalgamate
+          (if (equal (current-buffer) alt-buffer)
+              ;; If both regions are in the same buffer
+              (let ((current-text
+                     (buffer-substring-no-properties current-start current-end))
+                    (alt-text (buffer-substring-no-properties alt-start alt-end)))
+                (delete-region current-start current-end)
+                (goto-char current-start)
+                (insert alt-text)
+                ;; Update positions based on the current length
+                (let* ((length-difference (- (length alt-text) (length current-text)))
+                       (new-alt-start (+ (if (< current-start alt-start)
+                                             length-difference 0)
+                                         alt-start))
+                       (new-alt-end (+ new-alt-start (length alt-text)))
+                       (final-alt-end (+ new-alt-start (length current-text))))
+                  (delete-region new-alt-start new-alt-end)
+                  (goto-char new-alt-start)
+                  (insert current-text)
+                  ;; Update the head of the alternate region list
+                  (setcar alternate-region--current-list
+                          (list alt-buffer new-alt-start final-alt-end))
+                  (alternate-region--update-overlays)
+                  ;; Calculate the final position of the current region after both swaps
+                  (let ((final-current-start
+                         (if (< current-start alt-start)
+                             current-start
+                           (+ current-start (- length-difference))))
+                        (final-current-end
+                         (if (< current-start alt-start)
+                             (+ current-start (length alt-text))
+                           (+ current-start
+                              (- length-difference)
+                              (length alt-text)))))
+                    ;; Set the region to the newly inserted text
+                    (goto-char final-current-end)
+                    (set-mark final-current-start)
+                    (activate-mark))))
+            ;; If regions are in different buffers
             (let ((current-text
                    (buffer-substring-no-properties current-start current-end))
-                  (alt-text (buffer-substring-no-properties alt-start alt-end)))
+                  (alt-text (with-current-buffer alt-buffer
+                              (buffer-substring-no-properties alt-start alt-end))))
+              ;; Swap text in the current buffer
               (delete-region current-start current-end)
               (goto-char current-start)
               (insert alt-text)
-              ;; Update positions based on the current length
-              (let* ((length-difference (- (length alt-text) (length current-text)))
-                     (new-alt-start (+ (if (< current-start alt-start)
-                                           length-difference 0)
-                                       alt-start))
-                     (new-alt-end (+ new-alt-start (length alt-text)))
-                     (final-alt-end (+ new-alt-start (length current-text))))
-                (delete-region new-alt-start new-alt-end)
-                (goto-char new-alt-start)
-                (insert current-text)
-                ;; Update the head of the alternate region list
-                (setcar alternate-region--current-list
-                        (list alt-buffer new-alt-start final-alt-end))
-                (alternate-region--update-overlays)
-                (goto-char (+ current-start (length alt-text)))
-                (set-mark current-start)))
-          ;; If regions are in different buffers
-          (let ((current-text
-                 (buffer-substring-no-properties current-start current-end))
-                (alt-text (with-current-buffer alt-buffer
-                            (buffer-substring-no-properties alt-start alt-end))))
-            ;; Swap text in the current buffer
-            (delete-region current-start current-end)
-            (goto-char current-start)
-            (insert alt-text)
-            (goto-char (+ current-start (length alt-text)))
-            (set-mark current-start)
-            ;; Swap text in the alternate buffer
-            (with-current-buffer alt-buffer
-              (delete-region alt-start alt-end)
-              (goto-char alt-start)
-              (insert current-text))
-            ;; Update the head of the alternate region list
-            (setcar alternate-region--current-list
-                    (list alt-buffer alt-start (+ alt-start (length current-text))))
-            (alternate-region--update-overlays))))
+              (goto-char (+ current-start (length alt-text)))
+              (set-mark current-start)
+              ;; Swap text in the alternate buffer
+              (with-current-buffer alt-buffer
+                (delete-region alt-start alt-end)
+                (goto-char alt-start)
+                (insert current-text))
+              ;; Update the head of the alternate region list
+              (setcar alternate-region--current-list
+                      (list alt-buffer alt-start (+ alt-start (length current-text))))
+              (alternate-region--update-overlays)))))
     (error "Both current and alternate regions must be active.")))
 
 (provide 'alternate-region)
