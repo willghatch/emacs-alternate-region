@@ -37,17 +37,20 @@
 ;;; probably.
 ;;;
 ;;; The API:
-;;; • `alternate-region-activate' is interactive.  If `region-active-p', it sets the current region as the alternate region, and deactivates the region.  If not `region-active-p', deactivate the alternate region (setting it to nil).
-;;; • `alternate-region-cycle' is interactive.  If `region-active-p' and there is an alternate region, it sets the current region as the alternate region and sets the previous alternate region as the new region.  Otherwise error.
-;;; • `alternate-region-swap' is interactive.  If `region-active-p' and there is an alterante region, it swaps the contents of the region and the alternate region.  It updates the ranges of the region and alternate region, so they are both still active.  If the region and alternate region are not both active, error.
-;;; • `alternate-region-set' takes a (cons beginning end) region or nil, and optional buffer (which defaults to the current buffer).  It accordingly activates or deactivates the alternate-region overlay.  Non-interactive.  Probably just use `alternate-region-activate' instead, but this is the function to use programatically.
-;;; • 'alternate-region-face' is a face for the highlighted alternate region.
+;;; • `alternate-region-activate' is interactive. If `region-active-p', it pushes the current region to the alternate region list and deactivates the region. If not `region-active-p', clears all alternate regions.
+;;; • `alternate-region-cycle' is interactive. Takes optional argument: nil/0 to swap with head (default), number to swap with region at index, or 'cycle to push current to head and pop tail to activate.
+;;; • `alternate-region-swap' is interactive. If `region-active-p', swaps current region with head alternate region. If not `region-active-p', swaps the first two alternate regions.
+;;; • `alternate-region-push' takes a (cons beginning end) region and optional buffer, pushes it to the front of the alternate region list. Non-interactive.
+;;; • `alternate-region-set' takes a (cons beginning end) region and optional buffer, replaces the head of the alternate region list (or pushes if empty). Non-interactive.
+;;; • `alternate-region-pop' is interactive. Pops the top alternate region, sets it as current region, and returns it.
+;;; • `alternate-region-clear' clears all alternate regions.
+;;; • `alternate-region-list' takes optional include-region argument. Returns the list of alternate regions, optionally with current region at front.
+;;; • 'alternate-region-face-0' through 'alternate-region-face-9', faces for the highlighted alternate regions.
 
 ;;; Code:
 
 
 ;; TODO - I have no idea what the minimum emacs version required here is.  It can probably work with much earlier versions.
-;; TODO - I would like to have multiple alternate regions in theory, but my main use case is just highlighting and swapping things.
 
 (defvar alternate-region--current-list nil
   "List of alternate regions.
