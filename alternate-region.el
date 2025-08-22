@@ -41,8 +41,9 @@
 ;;; • `alternate-region-cycle' is interactive. Takes optional argument: nil/0 to swap with head (default), number to swap with region at index, or 'cycle to push current to head and pop tail to activate.
 ;;; • `alternate-region-swap' is interactive. If `region-active-p', swaps current region with head alternate region. If not `region-active-p', swaps the first two alternate regions.
 ;;; • `alternate-region-push' takes a (cons beginning end) region and optional buffer, pushes it to the front of the alternate region list. Non-interactive.
+;;; • `alternate-region-pop' pops the top alternate region and returns it.
 ;;; • `alternate-region-set' takes a (cons beginning end) region and optional buffer, replaces the head of the alternate region list (or pushes if empty). Non-interactive.
-;;; • `alternate-region-pop' is interactive. Pops the top alternate region, sets it as current region, and returns it.
+;;; • `alternate-region-pop-go' is interactive. Pops the top alternate region, sets it as current region, and returns it.
 ;;; • `alternate-region-clear' clears all alternate regions.
 ;;; • `alternate-region-list' takes optional include-region argument. Returns the list of alternate regions, optionally with current region at front.
 ;;; • 'alternate-region-face-0' through 'alternate-region-face-9', faces for the highlighted alternate regions.
@@ -171,23 +172,27 @@ If the list is empty, this pushes a new region."
         (add-hook 'after-change-functions 'alternate-region--update 10 t)))))
 
 (defun alternate-region-pop ()
+  "Pop the top alternate region from the list and return it.
+Returns the region in the format (BUFFER BEGIN END), or nil if list is empty."
+  (when alternate-region--current-list
+    (let ((popped-region (car alternate-region--current-list)))
+      (setq alternate-region--current-list (cdr alternate-region--current-list))
+      (alternate-region--update-overlays)
+      popped-region)))
+
+(defun alternate-region-pop-go ()
   "Pop the top alternate region from the list, set it as current region, and return it.
 Returns the region in the format (BUFFER BEGIN END), or nil if list is empty."
   (interactive)
-  (when alternate-region--current-list
-    (let* ((popped-region (car alternate-region--current-list))
-           (popped-buffer (car popped-region))
-           (popped-start (cadr popped-region))
-           (popped-end (caddr popped-region)))
-      (setq alternate-region--current-list (cdr alternate-region--current-list))
-      (alternate-region--update-overlays)
-      ;; Set the popped region as the current region
-      (when (not (eq (current-buffer) popped-buffer))
-        (switch-to-buffer popped-buffer))
-      (goto-char popped-end)
-      (set-mark popped-start)
-      (activate-mark)
-      popped-region)))
+  (let ((popped-region (alternate-region-pop)))
+    (when popped-region
+      (let ((popped-buffer (car popped-region)))
+        (when (not (eq (current-buffer) popped-buffer))
+          (switch-to-buffer popped-buffer))
+        (goto-char (caddr popped-region))
+        (set-mark (cadr popped-region))
+        (activate-mark)
+        popped-region))))
 
 (defun alternate-region-clear ()
   "Clear all alternate regions."
