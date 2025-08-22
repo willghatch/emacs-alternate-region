@@ -167,6 +167,25 @@ If the list is empty, this pushes a new region."
         (alternate-region--update-overlays)
         (add-hook 'after-change-functions 'alternate-region--update 10 t)))))
 
+(defun alternate-region-pop ()
+  "Pop the top alternate region from the list, set it as current region, and return it.
+Returns the region in the format (BUFFER BEGIN END), or nil if list is empty."
+  (interactive)
+  (when alternate-region--current-list
+    (let* ((popped-region (car alternate-region--current-list))
+           (popped-buffer (car popped-region))
+           (popped-start (cadr popped-region))
+           (popped-end (caddr popped-region)))
+      (setq alternate-region--current-list (cdr alternate-region--current-list))
+      (alternate-region--update-overlays)
+      ;; Set the popped region as the current region
+      (when (not (eq (current-buffer) popped-buffer))
+        (switch-to-buffer popped-buffer))
+      (goto-char popped-end)
+      (set-mark popped-start)
+      (activate-mark)
+      popped-region)))
+
 (defun alternate-region-clear ()
   "Clear all alternate regions."
   (interactive)
